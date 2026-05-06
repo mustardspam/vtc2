@@ -84,6 +84,23 @@
           </nav>
 
           <div id="scoresView" class="view active">
+            <div class="trade-rank-grid">
+              <section class="trade-card">
+                <div class="trade-card-head">
+                  <h2>Best Performing Trades</h2>
+                  <i data-lucide="trending-up"></i>
+                </div>
+                <ol id="topBestTrades" class="trade-list"></ol>
+              </section>
+              <section class="trade-card">
+                <div class="trade-card-head">
+                  <h2>Worst Performing Trades</h2>
+                  <i data-lucide="trending-down"></i>
+                </div>
+                <ol id="topWorstTrades" class="trade-list"></ol>
+              </section>
+            </div>
+
             <div class="toolbar">
               <label class="search">
                 <i data-lucide="search"></i>

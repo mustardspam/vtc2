@@ -17,6 +17,12 @@ This is a local-first starter app for updating the Vendor & Trade Council scorec
 5. Paste forwarded builder feedback into the Field feedback tab, review the parsed entry, and add it to the Log.
 6. Export the updated workbook.
 
+## Saved Data
+
+The app saves parsed scorecard data, weights, feedback entries, and activity in the browser's local storage. Refreshing the page on the same browser will restore the latest loaded data instead of starting over.
+
+For team-wide shared data, connect the app to a hosted datastore such as Supabase, Firebase, Airtable, or Cloudflare D1/KV. Browser storage is useful for refreshes and individual use, but it is not a shared database across different users or devices.
+
 ## Scoring Rules Captured
 
 The app mirrors the current scorecard weights from the workbook:

@@ -325,6 +325,77 @@ textarea {
   border-radius: 8px;
 }
 
+.trade-rank-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.trade-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.trade-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.trade-card-head svg {
+  color: var(--accent);
+}
+
+.trade-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trade-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.trade-list li:last-child {
+  border-bottom: 0;
+}
+
+.trade-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.trade-list strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-list small {
+  color: var(--muted);
+  grid-column: 1 / -1;
+}
+
+.trade-list .empty-trade {
+  display: block;
+  color: var(--muted);
+}
+
 table {
   width: 100%;
   min-width: 900px;
@@ -425,7 +496,8 @@ td.number {
 @media (max-width: 980px) {
   .status-grid,
   .workspace,
-  .feedback-grid {
+  .feedback-grid,
+  .trade-rank-grid {
     grid-template-columns: 1fr;
   }
 
