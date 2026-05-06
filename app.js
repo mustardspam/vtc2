@@ -826,11 +826,11 @@ function restoreCloudConfig() {
 
 function connectCloudFromForm() {
   state.cloud.url = cleanText(els.cloudUrl.value);
-  state.cloud.anonKey = cleanText(els.cloudAnonKey.value);
+  state.cloud.anonKey = normalizeCloudKey(els.cloudAnonKey.value);
   state.cloud.workspaceId = cleanText(els.cloudWorkspace.value) || "vtc-main";
   if (!isCloudConfigComplete()) {
     setCloudStatus("Missing key", false, true);
-    logActivity("Enter both the Supabase Project URL and anon/public key before connecting.");
+    logActivity("Enter both the Supabase Project URL and anon/public key before connecting. Copy the key value only, not the label.");
     return;
   }
   localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify({
@@ -860,7 +860,19 @@ function initCloudClient() {
 }
 
 function isCloudConfigComplete() {
-  return /^https:\/\/.+\.supabase\.co\/?$/.test(state.cloud.url) && state.cloud.anonKey.length > 20;
+  try {
+    const url = new URL(state.cloud.url);
+    return Boolean(url.protocol.startsWith("http") && url.hostname && state.cloud.anonKey.length >= 10);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeCloudKey(value) {
+  return cleanText(value)
+    .replace(/^anon\s*(public)?\s*key\s*[:=]\s*/i, "")
+    .replace(/^publishable\s*key\s*[:=]\s*/i, "")
+    .replace(/^["']|["']$/g, "");
 }
 
 function setCloudStatus(status, connected, isError = false) {
