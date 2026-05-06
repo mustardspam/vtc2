@@ -26,6 +26,7 @@ const DEFAULT_WEIGHTS = {
 
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
+const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -42,10 +43,19 @@ const state = {
   weights: { ...DEFAULT_WEIGHTS },
   scores: [],
   activity: [],
-  lastSaved: ""
+  lastSaved: "",
+  cloud: {
+    url: "",
+    anonKey: "",
+    workspaceId: "vtc-main",
+    connected: false,
+    status: "Not connected"
+  }
 };
 
 const els = {};
+let supabaseClient = null;
+let cloudSaveTimer = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   [
@@ -61,6 +71,13 @@ window.addEventListener("DOMContentLoaded", () => {
     "scoreRows",
     "topBestTrades",
     "topWorstTrades",
+    "cloudStatus",
+    "cloudUrl",
+    "cloudAnonKey",
+    "cloudWorkspace",
+    "cloudSaveConfigBtn",
+    "cloudLoadBtn",
+    "cloudSaveBtn",
     "vendorSearch",
     "categoryFilter",
     "activityLog",
@@ -90,12 +107,19 @@ window.addEventListener("DOMContentLoaded", () => {
   els.categoryFilter.addEventListener("change", renderScores);
   els.parseFeedbackBtn.addEventListener("click", () => parseFeedback(els.feedbackText.value));
   els.feedbackForm.addEventListener("submit", addFeedbackToLog);
+  els.cloudSaveConfigBtn.addEventListener("click", connectCloudFromForm);
+  els.cloudLoadBtn.addEventListener("click", () => loadCloudState({ silent: false }));
+  els.cloudSaveBtn.addEventListener("click", () => saveCloudState({ manual: true }));
 
   wireDropZone(document.body);
+  restoreCloudConfig();
   if (restoreState()) {
     logActivity("Restored saved scorecard data from this browser.");
   } else {
     logActivity("Ready. Load the master VTC scorecard to begin.");
+  }
+  if (initCloudClient()) {
+    loadCloudState({ silent: true });
   }
   render();
   if (window.lucide) window.lucide.createIcons();
@@ -529,6 +553,7 @@ function render() {
   renderCategoryFilter();
   renderVendorList();
   renderTradeRankings();
+  renderCloudStatus();
   renderScores();
   renderActivity();
   if (window.lucide) window.lucide.createIcons();
@@ -722,7 +747,7 @@ function hasScorecardData() {
   return state.vendors.length > 0 || Object.values(state.tables).some((rows) => rows.length > 0);
 }
 
-function saveState() {
+function saveState(options = { syncCloud: true }) {
   try {
     state.lastSaved = new Date().toISOString();
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -733,6 +758,7 @@ function saveState() {
       activity: state.activity,
       lastSaved: state.lastSaved
     }));
+    if (options.syncCloud) queueCloudSave();
   } catch (error) {
     console.warn("Unable to save scorecard state", error);
     logActivity("Browser storage is full, so this update was not saved for refresh.");
@@ -757,6 +783,166 @@ function restoreState() {
     localStorage.removeItem(STORAGE_KEY);
     return false;
   }
+}
+
+function getPersistedPayload() {
+  return {
+    fileName: state.fileName,
+    tables: state.tables,
+    vendors: state.vendors,
+    weights: state.weights,
+    activity: state.activity,
+    lastSaved: state.lastSaved
+  };
+}
+
+function applyPersistedPayload(payload) {
+  state.fileName = payload.fileName || "";
+  state.tables = { ...emptyTables(), ...(payload.tables || {}) };
+  state.vendors = payload.vendors?.length ? payload.vendors : readVendors(state.tables.Config);
+  state.weights = normalizeWeights({ ...DEFAULT_WEIGHTS, ...(payload.weights || {}) });
+  state.activity = Array.isArray(payload.activity) ? payload.activity.slice(0, 80) : [];
+  state.lastSaved = payload.lastSaved || new Date().toISOString();
+  state.scores = calculateScores();
+}
+
+function restoreCloudConfig() {
+  try {
+    const saved = localStorage.getItem(CLOUD_CONFIG_KEY);
+    if (!saved) return;
+    const config = JSON.parse(saved);
+    state.cloud.url = config.url || "";
+    state.cloud.anonKey = config.anonKey || "";
+    state.cloud.workspaceId = config.workspaceId || "vtc-main";
+    els.cloudUrl.value = state.cloud.url;
+    els.cloudAnonKey.value = state.cloud.anonKey;
+    els.cloudWorkspace.value = state.cloud.workspaceId;
+  } catch (error) {
+    console.warn("Unable to restore Supabase config", error);
+    localStorage.removeItem(CLOUD_CONFIG_KEY);
+  }
+}
+
+function connectCloudFromForm() {
+  state.cloud.url = cleanText(els.cloudUrl.value);
+  state.cloud.anonKey = cleanText(els.cloudAnonKey.value);
+  state.cloud.workspaceId = cleanText(els.cloudWorkspace.value) || "vtc-main";
+  localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify({
+    url: state.cloud.url,
+    anonKey: state.cloud.anonKey,
+    workspaceId: state.cloud.workspaceId
+  }));
+  if (initCloudClient()) {
+    logActivity(`Connected cloud workspace: ${state.cloud.workspaceId}`);
+    saveCloudState({ manual: true });
+  }
+  renderCloudStatus();
+}
+
+function initCloudClient() {
+  if (!state.cloud.url || !state.cloud.anonKey) {
+    setCloudStatus("Not connected", false);
+    return false;
+  }
+  if (!window.supabase?.createClient) {
+    setCloudStatus("Supabase library blocked", false, true);
+    return false;
+  }
+  supabaseClient = window.supabase.createClient(state.cloud.url, state.cloud.anonKey);
+  setCloudStatus("Connected", true);
+  return true;
+}
+
+function setCloudStatus(status, connected, isError = false) {
+  state.cloud.status = status;
+  state.cloud.connected = connected;
+  state.cloud.error = isError;
+  renderCloudStatus();
+}
+
+function renderCloudStatus() {
+  if (!els.cloudStatus) return;
+  els.cloudStatus.textContent = state.cloud.status;
+  els.cloudStatus.classList.toggle("connected", Boolean(state.cloud.connected));
+  els.cloudStatus.classList.toggle("error", Boolean(state.cloud.error));
+  if (!els.cloudUrl.value && state.cloud.url) els.cloudUrl.value = state.cloud.url;
+  if (!els.cloudAnonKey.value && state.cloud.anonKey) els.cloudAnonKey.value = state.cloud.anonKey;
+  if (!els.cloudWorkspace.value) els.cloudWorkspace.value = state.cloud.workspaceId || "vtc-main";
+}
+
+function queueCloudSave() {
+  if (!supabaseClient || !hasScorecardData()) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(() => {
+    saveCloudState({ manual: false });
+  }, 900);
+}
+
+async function saveCloudState({ manual }) {
+  if (!supabaseClient && !initCloudClient()) {
+    if (manual) logActivity("Connect Supabase before saving to cloud.");
+    return;
+  }
+  if (!hasScorecardData()) {
+    if (manual) logActivity("Load scorecard data before saving to cloud.");
+    return;
+  }
+  setCloudStatus("Saving...", true);
+  const payload = getPersistedPayload();
+  const { error } = await supabaseClient
+    .from("scorecard_states")
+    .upsert({
+      id: state.cloud.workspaceId || "vtc-main",
+      payload,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "id" });
+
+  if (error) {
+    console.error(error);
+    setCloudStatus("Save failed", false, true);
+    logActivity(`Supabase save failed: ${error.message}`);
+    return;
+  }
+  setCloudStatus("Saved", true);
+  if (manual) logActivity("Saved scorecard data to Supabase.");
+}
+
+async function loadCloudState({ silent }) {
+  if (!supabaseClient && !initCloudClient()) {
+    if (!silent) logActivity("Connect Supabase before loading cloud data.");
+    return;
+  }
+  setCloudStatus("Loading...", true);
+  const { data, error } = await supabaseClient
+    .from("scorecard_states")
+    .select("payload, updated_at")
+    .eq("id", state.cloud.workspaceId || "vtc-main")
+    .maybeSingle();
+
+  if (error) {
+    console.error(error);
+    setCloudStatus("Load failed", false, true);
+    logActivity(`Supabase load failed: ${error.message}`);
+    return;
+  }
+  if (!data?.payload) {
+    setCloudStatus("No cloud data", true);
+    if (!silent) logActivity("No Supabase scorecard data exists for this workspace yet.");
+    return;
+  }
+
+  const localSaved = state.lastSaved ? new Date(state.lastSaved).getTime() : 0;
+  const cloudSaved = data.payload.lastSaved ? new Date(data.payload.lastSaved).getTime() : new Date(data.updated_at).getTime();
+  if (silent && localSaved > cloudSaved) {
+    setCloudStatus("Local newer", true);
+    return;
+  }
+
+  applyPersistedPayload(data.payload);
+  saveState({ syncCloud: false });
+  setCloudStatus("Loaded", true);
+  logActivity("Loaded scorecard data from Supabase.");
+  render();
 }
 
 function wireDropZone(target) {

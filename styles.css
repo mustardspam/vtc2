@@ -171,6 +171,53 @@ h2 {
   margin-top: 18px;
 }
 
+.cloud-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.cloud-panel label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cloud-panel input {
+  width: 100%;
+  color: var(--ink);
+}
+
+.cloud-status {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cloud-status.connected {
+  background: #eaf7ef;
+  color: var(--good);
+}
+
+.cloud-status.error {
+  background: #fff0ee;
+  color: var(--bad);
+}
+
+.cloud-actions {
+  flex-wrap: wrap;
+}
+
+.cloud-actions .secondary {
+  flex: 1 1 88px;
+}
+
 .weights-head {
   display: flex;
   align-items: center;

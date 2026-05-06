@@ -21,7 +21,22 @@ This is a local-first starter app for updating the Vendor & Trade Council scorec
 
 The app saves parsed scorecard data, weights, feedback entries, and activity in the browser's local storage. Refreshing the page on the same browser will restore the latest loaded data instead of starting over.
 
-For team-wide shared data, connect the app to a hosted datastore such as Supabase, Firebase, Airtable, or Cloudflare D1/KV. Browser storage is useful for refreshes and individual use, but it is not a shared database across different users or devices.
+For team-wide shared data, connect the app to Supabase using the Cloud Data panel. Browser storage remains a fallback for refreshes and offline use, but Supabase is the shared source for users on different devices.
+
+## Supabase Setup
+
+1. Open your Supabase project.
+2. Go to SQL Editor.
+3. Paste and run `supabase-schema.sql`.
+4. Go to Project Settings > API.
+5. Copy your Project URL and anon/public key.
+6. Open the scorecard app and enter those values in Cloud Data.
+7. Keep Workspace ID as `vtc-main` unless you also change the SQL policies.
+8. Click Connect, then Save.
+
+The app auto-saves changes to Supabase after a workbook is loaded, feedback is added, or weights change. Use Load to pull the latest shared data onto another device.
+
+The anon key is safe to use in a browser only when Row Level Security is enabled. The included SQL enables RLS and limits anonymous access to the single `vtc-main` row.
 
 ## Scoring Rules Captured
 

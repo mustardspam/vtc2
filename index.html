@@ -6,6 +6,7 @@
     <title>VTC Scorecard Updater</title>
     <link rel="stylesheet" href="./styles.css" />
     <script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     <script defer src="./app.js"></script>
   </head>
@@ -65,6 +66,30 @@
           </label>
 
           <div class="weights" id="weightsPanel"></div>
+
+          <section class="cloud-panel" aria-label="Cloud data sync">
+            <div class="panel-head">
+              <h2>Cloud Data</h2>
+              <span id="cloudStatus" class="cloud-status">Not connected</span>
+            </div>
+            <label>Project URL <input id="cloudUrl" type="url" placeholder="https://your-project.supabase.co" /></label>
+            <label>Anon key <input id="cloudAnonKey" type="password" autocomplete="off" /></label>
+            <label>Workspace ID <input id="cloudWorkspace" value="vtc-main" /></label>
+            <div class="button-row cloud-actions">
+              <button id="cloudSaveConfigBtn" class="secondary" type="button">
+                <i data-lucide="plug"></i>
+                Connect
+              </button>
+              <button id="cloudLoadBtn" class="secondary" type="button">
+                <i data-lucide="cloud-download"></i>
+                Load
+              </button>
+              <button id="cloudSaveBtn" class="secondary" type="button">
+                <i data-lucide="cloud-upload"></i>
+                Save
+              </button>
+            </div>
+          </section>
         </aside>
 
         <section class="main-panel">
