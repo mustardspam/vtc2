@@ -167,16 +167,43 @@ h2 {
 
 .weights {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   margin-top: 18px;
+}
+
+.weights-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weights-head strong {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 
 .weight-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 12px;
+  gap: 8px 12px;
   align-items: center;
   font-size: 14px;
+}
+
+.weight-row output {
+  justify-self: end;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.weight-row input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  accent-color: var(--accent);
 }
 
 .tabs {
