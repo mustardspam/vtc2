@@ -255,6 +255,7 @@ function cleanRow(row) {
 }
 
 function cleanText(value) {
+  if (value === null || value === undefined) return "";
   return String(value).replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 }
 
@@ -827,6 +828,11 @@ function connectCloudFromForm() {
   state.cloud.url = cleanText(els.cloudUrl.value);
   state.cloud.anonKey = cleanText(els.cloudAnonKey.value);
   state.cloud.workspaceId = cleanText(els.cloudWorkspace.value) || "vtc-main";
+  if (!isCloudConfigComplete()) {
+    setCloudStatus("Missing key", false, true);
+    logActivity("Enter both the Supabase Project URL and anon/public key before connecting.");
+    return;
+  }
   localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify({
     url: state.cloud.url,
     anonKey: state.cloud.anonKey,
@@ -840,7 +846,7 @@ function connectCloudFromForm() {
 }
 
 function initCloudClient() {
-  if (!state.cloud.url || !state.cloud.anonKey) {
+  if (!isCloudConfigComplete()) {
     setCloudStatus("Not connected", false);
     return false;
   }
@@ -851,6 +857,10 @@ function initCloudClient() {
   supabaseClient = window.supabase.createClient(state.cloud.url, state.cloud.anonKey);
   setCloudStatus("Connected", true);
   return true;
+}
+
+function isCloudConfigComplete() {
+  return /^https:\/\/.+\.supabase\.co\/?$/.test(state.cloud.url) && state.cloud.anonKey.length > 20;
 }
 
 function setCloudStatus(status, connected, isError = false) {
