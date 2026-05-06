@@ -24,6 +24,8 @@ const DEFAULT_WEIGHTS = {
   Log: 0.375
 };
 
+const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
+
 const LOG_POINTS = {
   "Kudos|-": 100,
   "Complaint|Minor": 85,
@@ -236,11 +238,11 @@ function readVendors(configRows) {
 function readWeights(configRows) {
   const weights = { ...DEFAULT_WEIGHTS };
   for (const row of configRows) {
-    const metric = cleanText(row.Metric || row.Category || "");
+    const metric = cleanText(row.Metric || "");
     const weight = Number(row.Weight ?? "");
-    if (metric && Number.isFinite(weight)) weights[metric] = weight;
+    if (WEIGHT_METRICS.includes(metric) && Number.isFinite(weight)) weights[metric] = weight;
   }
-  return weights;
+  return normalizeWeights(weights);
 }
 
 function mergeConfig(rows) {
@@ -521,9 +523,76 @@ function render() {
 }
 
 function renderWeights() {
-  els.weightsPanel.innerHTML = "<h2>Weights</h2>" + Object.entries(state.weights)
-    .map(([metric, weight]) => `<div class="weight-row"><span>${metric}</span><strong>${Math.round(weight * 1000) / 10}%</strong></div>`)
-    .join("");
+  const total = WEIGHT_METRICS.reduce((value, metric) => value + Number(state.weights[metric] || 0), 0);
+  els.weightsPanel.innerHTML = `
+    <div class="weights-head">
+      <h2>Weights</h2>
+      <strong>${formatPercent(total)}</strong>
+    </div>
+    ${WEIGHT_METRICS
+    .map((metric) => `
+      <label class="weight-row">
+        <span>${metric}</span>
+        <output id="weightValue${metric}">${formatPercent(state.weights[metric])}</output>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="0.5"
+          value="${round((state.weights[metric] || 0) * 100)}"
+          data-weight-metric="${metric}"
+          aria-label="${metric} weight"
+        />
+      </label>
+    `)
+    .join("")}
+  `;
+  els.weightsPanel.querySelectorAll("input[type='range']").forEach((slider) => {
+    slider.addEventListener("input", () => updateWeight(slider.dataset.weightMetric, Number(slider.value) / 100));
+  });
+}
+
+function updateWeight(metric, nextWeight) {
+  const current = { ...state.weights };
+  const clamped = Math.max(0, Math.min(1, nextWeight));
+  const otherMetrics = WEIGHT_METRICS.filter((item) => item !== metric);
+  const remaining = 1 - clamped;
+  const currentOtherTotal = otherMetrics.reduce((total, item) => total + Number(current[item] || 0), 0);
+
+  current[metric] = clamped;
+  if (remaining === 0) {
+    otherMetrics.forEach((item) => {
+      current[item] = 0;
+    });
+  } else if (currentOtherTotal > 0) {
+    otherMetrics.forEach((item) => {
+      current[item] = (Number(current[item] || 0) / currentOtherTotal) * remaining;
+    });
+  } else {
+    otherMetrics.forEach((item) => {
+      current[item] = remaining / otherMetrics.length;
+    });
+  }
+
+  state.weights = normalizeWeights(current);
+  state.scores = calculateScores();
+  renderWeights();
+  renderScores();
+}
+
+function normalizeWeights(weights) {
+  const normalized = {};
+  const total = WEIGHT_METRICS.reduce((value, metric) => value + Number(weights[metric] || 0), 0);
+  if (total <= 0) return { ...DEFAULT_WEIGHTS };
+  WEIGHT_METRICS.forEach((metric) => {
+    normalized[metric] = Number(weights[metric] || 0) / total;
+  });
+  return normalized;
+}
+
+function formatPercent(value) {
+  const percent = round((Number(value) || 0) * 100);
+  return `${percent}%`;
 }
 
 function renderCategoryFilter() {
