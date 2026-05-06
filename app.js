@@ -825,10 +825,15 @@ function restoreCloudConfig() {
 }
 
 function connectCloudFromForm() {
-  state.cloud.url = cleanText(els.cloudUrl.value);
+  state.cloud.url = normalizeCloudUrl(els.cloudUrl.value);
   state.cloud.anonKey = normalizeCloudKey(els.cloudAnonKey.value);
   state.cloud.workspaceId = cleanText(els.cloudWorkspace.value) || "vtc-main";
-  if (!isCloudConfigComplete()) {
+  if (!state.cloud.url) {
+    setCloudStatus("Missing URL", false, true);
+    logActivity("Enter the Supabase Project URL before connecting.");
+    return;
+  }
+  if (!state.cloud.anonKey) {
     setCloudStatus("Missing key", false, true);
     logActivity("Enter both the Supabase Project URL and anon/public key before connecting. Copy the key value only, not the label.");
     return;
@@ -846,7 +851,7 @@ function connectCloudFromForm() {
 }
 
 function initCloudClient() {
-  if (!isCloudConfigComplete()) {
+  if (!state.cloud.url || !state.cloud.anonKey) {
     setCloudStatus("Not connected", false);
     return false;
   }
@@ -854,18 +859,26 @@ function initCloudClient() {
     setCloudStatus("Supabase library blocked", false, true);
     return false;
   }
-  supabaseClient = window.supabase.createClient(state.cloud.url, state.cloud.anonKey);
-  setCloudStatus("Connected", true);
-  return true;
-}
-
-function isCloudConfigComplete() {
   try {
-    const url = new URL(state.cloud.url);
-    return Boolean(url.protocol.startsWith("http") && url.hostname && state.cloud.anonKey.length >= 10);
-  } catch {
+    supabaseClient = window.supabase.createClient(state.cloud.url, state.cloud.anonKey);
+    setCloudStatus("Connected", true);
+    return true;
+  } catch (error) {
+    console.error(error);
+    setCloudStatus("Connection invalid", false, true);
     return false;
   }
+}
+
+function normalizeCloudUrl(value) {
+  const url = cleanText(value)
+    .replace(/^project\s*url\s*[:=]\s*/i, "")
+    .replace(/^url\s*[:=]\s*/i, "")
+    .replace(/^["']|["']$/g, "")
+    .replace(/\/+$/, "");
+  if (!url) return "";
+  if (/^[a-z0-9-]{15,}$/i.test(url) && !url.includes(".")) return `https://${url}.supabase.co`;
+  return url;
 }
 
 function normalizeCloudKey(value) {
