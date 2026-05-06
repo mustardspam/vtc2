@@ -27,7 +27,7 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-06.4";
+const APP_VERSION = "REST sync build 2026-05-06.5";
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -78,6 +78,7 @@ window.addEventListener("DOMContentLoaded", () => {
     "cloudSaveConfigBtn",
     "cloudLoadBtn",
     "cloudSaveBtn",
+    "cloudShareBtn",
     "appVersion",
     "vendorSearch",
     "categoryFilter",
@@ -111,9 +112,11 @@ window.addEventListener("DOMContentLoaded", () => {
   els.cloudSaveConfigBtn.addEventListener("click", connectCloudFromForm);
   els.cloudLoadBtn.addEventListener("click", () => loadCloudState({ silent: false }));
   els.cloudSaveBtn.addEventListener("click", () => saveCloudState({ manual: true }));
+  els.cloudShareBtn.addEventListener("click", copyCloudShareLink);
 
   wireDropZone(document.body);
   restoreCloudConfig();
+  restoreCloudConfigFromUrl();
   if (restoreState()) {
     logActivity("Restored saved scorecard data from this browser.");
   } else {
@@ -826,6 +829,29 @@ function restoreCloudConfig() {
   }
 }
 
+function restoreCloudConfigFromUrl() {
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+  if (!hash) return;
+  const params = new URLSearchParams(hash);
+  const cloudUrl = params.get("supabaseUrl");
+  const cloudKey = params.get("supabaseKey");
+  const workspaceId = params.get("workspaceId");
+  if (!cloudUrl || !cloudKey) return;
+
+  state.cloud.url = normalizeCloudUrl(cloudUrl);
+  state.cloud.anonKey = normalizeCloudKey(cloudKey);
+  state.cloud.workspaceId = cleanText(workspaceId) || "vtc-main";
+  els.cloudUrl.value = state.cloud.url;
+  els.cloudAnonKey.value = state.cloud.anonKey;
+  els.cloudWorkspace.value = state.cloud.workspaceId;
+  localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify({
+    url: state.cloud.url,
+    anonKey: state.cloud.anonKey,
+    workspaceId: state.cloud.workspaceId
+  }));
+  logActivity("Loaded cloud connection settings from share link.");
+}
+
 function connectCloudFromForm() {
   state.cloud.url = normalizeCloudUrl(els.cloudUrl.value);
   state.cloud.anonKey = normalizeCloudKey(els.cloudAnonKey.value);
@@ -850,6 +876,32 @@ function connectCloudFromForm() {
     loadCloudState({ silent: false });
   }
   renderCloudStatus();
+}
+
+async function copyCloudShareLink() {
+  state.cloud.url = normalizeCloudUrl(els.cloudUrl.value);
+  state.cloud.anonKey = normalizeCloudKey(els.cloudAnonKey.value);
+  state.cloud.workspaceId = cleanText(els.cloudWorkspace.value) || "vtc-main";
+  if (!state.cloud.url || !state.cloud.anonKey) {
+    setCloudStatus("Missing settings", false, true);
+    logActivity("Enter the Supabase Project URL and key before copying a share link.");
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = new URLSearchParams({
+    supabaseUrl: state.cloud.url,
+    supabaseKey: state.cloud.anonKey,
+    workspaceId: state.cloud.workspaceId
+  }).toString();
+
+  try {
+    await navigator.clipboard.writeText(url.toString());
+    logActivity("Copied team share link. Send that link after saving data to Supabase.");
+  } catch {
+    window.prompt("Copy this team share link:", url.toString());
+  }
 }
 
 function initCloudClient() {

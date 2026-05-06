@@ -33,10 +33,13 @@ For team-wide shared data, connect the app to Supabase using the Cloud Data pane
 6. Open the scorecard app and enter those values in Cloud Data.
 7. Keep Workspace ID as `vtc-main` unless you also change the SQL policies.
 8. Click Connect, then Save.
+9. Click Share to copy a team link that includes the Supabase connection settings.
 
 The app auto-saves changes to Supabase after a workbook is loaded, feedback is added, or weights change. Use Load to pull the latest shared data onto another device.
 
 The anon key is safe to use in a browser only when Row Level Security is enabled. The included SQL enables RLS and limits anonymous access to the single `vtc-main` row.
+
+Team members should use the Share link from the Cloud Data panel, not just the plain site URL. The plain URL opens the app, but the Share link tells the app which Supabase project/workspace to load.
 
 ## Scoring Rules Captured
 
