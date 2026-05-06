@@ -9,9 +9,7 @@ This is a local-first starter app for updating the Vendor & Trade Council scorec
 3. Drop source Excel or CSV files that contain tabs or headers for:
    - `Safety`
    - `Schedule_Adherence_Raw`
-   - `Inspections`
    - `Rework`
-   - `Warranty`
    - `Log`
 4. Review the recalculated scores.
 5. Paste forwarded builder feedback into the Field feedback tab, review the parsed entry, and add it to the Log.
@@ -47,18 +45,14 @@ The app mirrors the current scorecard weights from the workbook:
 
 - Safety: 25%
 - Schedule: 25%
-- Inspections: 0%
 - Rework: 12.5%
-- Warranty: 0%
 - Field Log: 37.5%
 
 The scoring logic follows the formulas in the current workbook:
 
 - Safety starts at 100 and subtracts `Severity_Score * 10`.
 - Schedule averages `Adherence_Pct` and converts it to a 0-100 score.
-- Inspections average `Score_Pct`.
 - Rework starts at 100 and subtracts `PenaltyPoints * 5`.
-- Warranty averages `Warranty_Score`.
 - Field Log averages the `Points` column.
 - Overall score is the weighted average of available weighted metrics.
 

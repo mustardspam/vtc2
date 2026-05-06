@@ -18,16 +18,14 @@ const SHEET_ALIASES = {
 const DEFAULT_WEIGHTS = {
   Safety: 0.25,
   Schedule: 0.25,
-  Inspections: 0,
   Rework: 0.125,
-  Warranty: 0,
   Log: 0.375
 };
 
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-06.7";
+const APP_VERSION = "REST sync build 2026-05-06.8";
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -316,9 +314,7 @@ function calculateScores() {
   const byVendorName = new Map(state.vendors.map((vendor) => [cleanText(vendor.name).toLowerCase(), vendor]));
   const scheduleById = groupBy(state.tables.Schedule_Adherence_Raw, (row) => cleanText(row.Vendor_ID));
   const safetyByVendor = groupBy(state.tables.Safety, (row) => cleanText(row.Vendor_Name).toLowerCase());
-  const inspectionsByVendor = groupBy(state.tables.Inspections, (row) => cleanText(row.Vendor_Name).toLowerCase());
   const reworkByVendor = groupBy(state.tables.Rework, (row) => cleanText(row.Vendor_Name).toLowerCase());
-  const warrantyByVendor = groupBy(state.tables.Warranty, (row) => cleanText(row.Vendor_Name).toLowerCase());
   const logByVendor = groupBy(state.tables.Log, (row) => cleanText(row["Vendor Name Clean"] || row["Vendor Name"]).toLowerCase());
   const workload = readWorkload();
 
@@ -326,9 +322,7 @@ function calculateScores() {
     const key = cleanText(vendor.name).toLowerCase();
     const safetyRows = safetyByVendor.get(key) || [];
     const scheduleRows = scheduleById.get(cleanText(vendor.id)) || [];
-    const inspectionRows = inspectionsByVendor.get(key) || [];
     const reworkRows = reworkByVendor.get(key) || [];
-    const warrantyRows = warrantyByVendor.get(key) || [];
     const logRows = logByVendor.get(key) || [];
 
     const safety = safetyRows.length
@@ -337,23 +331,15 @@ function calculateScores() {
     const schedule = scheduleRows.length
       ? average(scheduleRows, (row) => Number(row.Adherence_Pct || 0)) * 100
       : 100;
-    const inspections = inspectionRows.length
-      ? average(inspectionRows, (row) => Number(row.Score_Pct || 0))
-      : null;
     const rework = reworkRows.length
       ? Math.max(0, 100 - sum(reworkRows, (row) => Number(row.PenaltyPoints || 0)) * 5)
-      : null;
-    const warranty = warrantyRows.length
-      ? average(warrantyRows, (row) => Number(row.Warranty_Score || 0))
       : null;
     const log = logRows.length ? average(logRows, (row) => Number(row.Points || 0)) : null;
 
     const components = {
       Safety: safety,
       Schedule: schedule,
-      Inspections: inspections,
       Rework: rework,
-      Warranty: warranty,
       Log: log
     };
     const overall = weightedScore(components);
@@ -361,9 +347,7 @@ function calculateScores() {
       ...vendor,
       safety,
       schedule,
-      inspections,
       rework,
-      warranty,
       log,
       overall,
       workload: workload.get(key) ?? null,
@@ -644,9 +628,7 @@ function scoresToRows() {
     Category: score.category,
     Safety_Score: round(score.safety),
     Schedule_Score: round(score.schedule),
-    Inspection_Score: round(score.inspections),
     Rework_Score: round(score.rework),
-    Warranty_Score: round(score.warranty),
     Log_Score: round(score.log),
     Overall_Score: round(score.overall),
     Overall_Rank: index + 1,
