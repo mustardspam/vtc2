@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VTC Scorecard Updater</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Vendor & Trade Council</p>
+          <h1>Scorecard Updater</h1>
+        </div>
+        <button id="exportBtn" class="primary" disabled>
+          <i data-lucide="download"></i>
+          Export workbook
+        </button>
+      </header>
+
+      <section class="status-grid" aria-label="Scorecard status">
+        <div class="metric">
+          <span>Vendors</span>
+          <strong id="vendorCount">0</strong>
+        </div>
+        <div class="metric">
+          <span>Raw rows</span>
+          <strong id="rowCount">0</strong>
+        </div>
+        <div class="metric">
+          <span>Feedback pending</span>
+          <strong id="pendingCount">0</strong>
+        </div>
+        <div class="metric">
+          <span>Last update</span>
+          <strong id="lastUpdate">None</strong>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <aside class="panel">
+          <div class="panel-head">
+            <h2>Inputs</h2>
+            <button id="resetBtn" class="icon-btn" title="Reset session" aria-label="Reset session">
+              <i data-lucide="rotate-ccw"></i>
+            </button>
+          </div>
+
+          <label class="dropzone">
+            <input id="masterInput" type="file" accept=".xlsx,.xlsm,.xlsb,.xls" />
+            <i data-lucide="file-spreadsheet"></i>
+            <span>Load master scorecard</span>
+            <small>Use your current VTC Scorecard workbook.</small>
+          </label>
+
+          <label class="dropzone">
+            <input id="sourceInput" type="file" multiple accept=".xlsx,.xlsm,.xlsb,.xls,.csv" />
+            <i data-lucide="folder-input"></i>
+            <span>Drop update files</span>
+            <small>Safety, schedule, rework, inspections, warranty, or log files.</small>
+          </label>
+
+          <div class="weights" id="weightsPanel"></div>
+        </aside>
+
+        <section class="main-panel">
+          <nav class="tabs" aria-label="Views">
+            <button class="tab active" data-view="scores">
+              <i data-lucide="bar-chart-3"></i>
+              Scores
+            </button>
+            <button class="tab" data-view="feedback">
+              <i data-lucide="mail-plus"></i>
+              Field feedback
+            </button>
+            <button class="tab" data-view="activity">
+              <i data-lucide="list-checks"></i>
+              Activity
+            </button>
+          </nav>
+
+          <div id="scoresView" class="view active">
+            <div class="toolbar">
+              <label class="search">
+                <i data-lucide="search"></i>
+                <input id="vendorSearch" type="search" placeholder="Search vendor, category, or ID" />
+              </label>
+              <select id="categoryFilter" aria-label="Filter by category">
+                <option value="">All categories</option>
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Vendor</th>
+                    <th>Category</th>
+                    <th>Overall</th>
+                    <th>Safety</th>
+                    <th>Schedule</th>
+                    <th>Rework</th>
+                    <th>Field Log</th>
+                    <th>Workload</th>
+                  </tr>
+                </thead>
+                <tbody id="scoreRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="feedbackView" class="view">
+            <div class="feedback-grid">
+              <section>
+                <h2>Forwarded feedback</h2>
+                <textarea id="feedbackText" spellcheck="true" placeholder="Paste forwarded email text here, or drop .eml/.txt files onto the box."></textarea>
+                <div class="button-row">
+                  <button id="parseFeedbackBtn" class="secondary">
+                    <i data-lucide="scan-text"></i>
+                    Parse feedback
+                  </button>
+                  <label class="secondary file-btn">
+                    <input id="feedbackFileInput" type="file" multiple accept=".eml,.msg,.txt" />
+                    <i data-lucide="paperclip"></i>
+                    Add files
+                  </label>
+                </div>
+              </section>
+
+              <section>
+                <h2>Review before logging</h2>
+                <form id="feedbackForm" class="feedback-form">
+                  <label>Vendor <input id="fbVendor" list="vendorList" required /></label>
+                  <label>Submitted by <input id="fbSubmitted" /></label>
+                  <label>Category
+                    <select id="fbCategory">
+                      <option>Complaint</option>
+                      <option>Kudos</option>
+                    </select>
+                  </label>
+                  <label>Severity
+                    <select id="fbSeverity">
+                      <option>Minor</option>
+                      <option>Major</option>
+                      <option>Critical</option>
+                      <option>-</option>
+                    </select>
+                  </label>
+                  <label>Community <input id="fbCommunity" /></label>
+                  <label>Notes <textarea id="fbNotes"></textarea></label>
+                  <button class="primary" type="submit">
+                    <i data-lucide="check"></i>
+                    Add to field log
+                  </button>
+                </form>
+                <datalist id="vendorList"></datalist>
+              </section>
+            </div>
+          </div>
+
+          <div id="activityView" class="view">
+            <ul id="activityLog" class="activity-log"></ul>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
