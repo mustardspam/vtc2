@@ -27,7 +27,7 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-06.6";
+const APP_VERSION = "REST sync build 2026-05-06.7";
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -42,6 +42,7 @@ const state = {
   tables: emptyTables(),
   vendors: [],
   weights: { ...DEFAULT_WEIGHTS },
+  spreadsheetWeights: { ...DEFAULT_WEIGHTS },
   scores: [],
   activity: [],
   lastSaved: "",
@@ -151,6 +152,7 @@ async function loadMaster(file) {
   state.tables = workbookToTables(state.workbook);
   state.vendors = readVendors(state.tables.Config);
   state.weights = readWeights(state.tables.Config);
+  state.spreadsheetWeights = { ...state.weights };
   state.scores = calculateScores();
   logActivity(`Loaded master scorecard: ${file.name}`);
   saveState();
@@ -186,6 +188,7 @@ async function ingestFiles(files) {
 
   state.vendors = readVendors(state.tables.Config);
   state.weights = readWeights(state.tables.Config);
+  state.spreadsheetWeights = { ...state.weights };
   state.scores = calculateScores();
   saveState();
   render();
@@ -693,6 +696,10 @@ function renderWeights() {
       <h2>Weights</h2>
       <strong>${formatPercent(total)}</strong>
     </div>
+    <button id="resetWeightsBtn" class="secondary weight-reset" type="button">
+      <i data-lucide="undo-2"></i>
+      Reset to spreadsheet
+    </button>
     ${WEIGHT_METRICS
     .map((metric) => `
       <label class="weight-row">
@@ -714,6 +721,15 @@ function renderWeights() {
   els.weightsPanel.querySelectorAll("input[type='range']").forEach((slider) => {
     slider.addEventListener("input", () => updateWeight(slider.dataset.weightMetric, Number(slider.value) / 100));
   });
+  document.getElementById("resetWeightsBtn")?.addEventListener("click", resetWeightsToSpreadsheet);
+}
+
+function resetWeightsToSpreadsheet() {
+  state.weights = normalizeWeights({ ...state.spreadsheetWeights });
+  state.scores = calculateScores();
+  logActivity("Reset weights to the spreadsheet defaults.");
+  saveState();
+  render();
 }
 
 function updateWeight(metric, nextWeight) {
@@ -862,6 +878,7 @@ function resetSession() {
   state.tables = emptyTables();
   state.vendors = [];
   state.weights = { ...DEFAULT_WEIGHTS };
+  state.spreadsheetWeights = { ...DEFAULT_WEIGHTS };
   state.scores = [];
   state.activity = [];
   state.lastSaved = "";
@@ -882,6 +899,7 @@ function saveState(options = { syncCloud: true }) {
       tables: state.tables,
       vendors: state.vendors,
       weights: state.weights,
+      spreadsheetWeights: state.spreadsheetWeights,
       activity: state.activity,
       lastSaved: state.lastSaved
     }));
@@ -901,6 +919,7 @@ function restoreState() {
     state.tables = { ...emptyTables(), ...(parsed.tables || {}) };
     state.vendors = parsed.vendors?.length ? parsed.vendors : readVendors(state.tables.Config);
     state.weights = normalizeWeights({ ...DEFAULT_WEIGHTS, ...(parsed.weights || {}) });
+    state.spreadsheetWeights = normalizeWeights({ ...DEFAULT_WEIGHTS, ...(parsed.spreadsheetWeights || parsed.weights || {}) });
     state.activity = Array.isArray(parsed.activity) ? parsed.activity.slice(0, 80) : [];
     state.lastSaved = parsed.lastSaved || "";
     state.scores = calculateScores();
@@ -918,6 +937,7 @@ function getPersistedPayload() {
     tables: state.tables,
     vendors: state.vendors,
     weights: state.weights,
+    spreadsheetWeights: state.spreadsheetWeights,
     activity: state.activity,
     lastSaved: state.lastSaved
   };
@@ -928,6 +948,7 @@ function applyPersistedPayload(payload) {
   state.tables = { ...emptyTables(), ...(payload.tables || {}) };
   state.vendors = payload.vendors?.length ? payload.vendors : readVendors(state.tables.Config);
   state.weights = normalizeWeights({ ...DEFAULT_WEIGHTS, ...(payload.weights || {}) });
+  state.spreadsheetWeights = normalizeWeights({ ...DEFAULT_WEIGHTS, ...(payload.spreadsheetWeights || payload.weights || {}) });
   state.activity = Array.isArray(payload.activity) ? payload.activity.slice(0, 80) : [];
   state.lastSaved = payload.lastSaved || new Date().toISOString();
   state.scores = calculateScores();

@@ -267,6 +267,10 @@ h2 {
   accent-color: var(--accent);
 }
 
+.weight-reset {
+  width: 100%;
+}
+
 .tabs {
   display: flex;
   gap: 8px;
