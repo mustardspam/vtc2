@@ -219,6 +219,11 @@ h2 {
   color: var(--bad);
 }
 
+.app-version {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .cloud-actions {
   flex-wrap: wrap;
 }

@@ -27,6 +27,7 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
+const APP_VERSION = "REST sync build 2026-05-06.2";
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -77,6 +78,7 @@ window.addEventListener("DOMContentLoaded", () => {
     "cloudSaveConfigBtn",
     "cloudLoadBtn",
     "cloudSaveBtn",
+    "appVersion",
     "vendorSearch",
     "categoryFilter",
     "activityLog",
@@ -554,6 +556,7 @@ function render() {
   renderVendorList();
   renderTradeRankings();
   renderCloudStatus();
+  if (els.appVersion) els.appVersion.textContent = APP_VERSION;
   renderScores();
   renderActivity();
   if (window.lucide) window.lucide.createIcons();
