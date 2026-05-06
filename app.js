@@ -844,7 +844,7 @@ function connectCloudFromForm() {
   }));
   if (initCloudClient()) {
     logActivity(`Connected cloud workspace: ${state.cloud.workspaceId}`);
-    saveCloudState({ manual: true });
+    loadCloudState({ silent: false });
   }
   renderCloudStatus();
 }
@@ -927,7 +927,7 @@ async function saveCloudState({ manual }) {
   if (error) {
     console.error(error);
     setCloudStatus("Save failed", false, true);
-    logActivity(`Supabase save failed: ${error.message}`);
+    logActivity(`Supabase save failed: ${formatCloudError(error)}`);
     return;
   }
   setCloudStatus("Saved", true);
@@ -946,7 +946,7 @@ async function loadCloudState({ silent }) {
   if (error) {
     console.error(error);
     setCloudStatus("Load failed", false, true);
-    logActivity(`Supabase load failed: ${error.message}`);
+    logActivity(`Supabase load failed: ${formatCloudError(error)}`);
     return;
   }
   const row = Array.isArray(data) ? data[0] : null;
@@ -983,14 +983,42 @@ async function supabaseRequest(path, options = {}) {
       body: options.body
     });
     const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
+    const data = parseJsonOrText(text);
     if (!response.ok) {
-      return { data: null, error: data || { message: response.statusText } };
+      return {
+        data: null,
+        error: {
+          status: response.status,
+          statusText: response.statusText,
+          ...(typeof data === "object" && data !== null ? data : { message: String(data || response.statusText) })
+        }
+      };
     }
     return { data, error: null };
   } catch (error) {
     return { data: null, error };
   }
+}
+
+function parseJsonOrText(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function formatCloudError(error) {
+  if (!error) return "Unknown error";
+  const parts = [
+    error.status ? `${error.status}` : "",
+    error.message || error.statusText || "",
+    error.details || "",
+    error.hint || "",
+    error.code || ""
+  ].filter(Boolean);
+  return parts.join(" - ") || String(error);
 }
 
 function wireDropZone(target) {

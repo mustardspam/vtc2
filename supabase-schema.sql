@@ -13,18 +13,18 @@ drop policy if exists "Allow VTC scorecard update" on public.scorecard_states;
 create policy "Allow VTC scorecard read"
 on public.scorecard_states
 for select
-to anon
+to anon, authenticated
 using (id = 'vtc-main');
 
 create policy "Allow VTC scorecard insert"
 on public.scorecard_states
 for insert
-to anon
+to anon, authenticated
 with check (id = 'vtc-main');
 
 create policy "Allow VTC scorecard update"
 on public.scorecard_states
 for update
-to anon
+to anon, authenticated
 using (id = 'vtc-main')
 with check (id = 'vtc-main');
