@@ -27,7 +27,7 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-06.3";
+const APP_VERSION = "REST sync build 2026-05-06.4";
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -862,14 +862,19 @@ function initCloudClient() {
 }
 
 function normalizeCloudUrl(value) {
-  const url = cleanText(value)
+  const rawUrl = cleanText(value)
     .replace(/^project\s*url\s*[:=]\s*/i, "")
     .replace(/^url\s*[:=]\s*/i, "")
     .replace(/^["']|["']$/g, "")
     .replace(/\/+$/, "");
-  if (!url) return "";
-  if (/^[a-z0-9-]{15,}$/i.test(url) && !url.includes(".")) return `https://${url}.supabase.co`;
-  return url;
+  if (!rawUrl) return "";
+  if (/^[a-z0-9-]{15,}$/i.test(rawUrl) && !rawUrl.includes(".")) return `https://${rawUrl}.supabase.co`;
+  try {
+    const parsed = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+    return `${parsed.protocol}//${parsed.hostname}`;
+  } catch {
+    return rawUrl;
+  }
 }
 
 function normalizeCloudKey(value) {
