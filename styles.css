@@ -191,6 +191,15 @@ h2 {
   color: var(--ink);
 }
 
+.cloud-panel textarea {
+  width: 100%;
+  min-height: 72px;
+  color: var(--ink);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
 .cloud-status {
   padding: 4px 8px;
   border-radius: 999px;

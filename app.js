@@ -54,7 +54,6 @@ const state = {
 };
 
 const els = {};
-let supabaseClient = null;
 let cloudSaveTimer = null;
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -855,19 +854,8 @@ function initCloudClient() {
     setCloudStatus("Not connected", false);
     return false;
   }
-  if (!window.supabase?.createClient) {
-    setCloudStatus("Supabase library blocked", false, true);
-    return false;
-  }
-  try {
-    supabaseClient = window.supabase.createClient(state.cloud.url, state.cloud.anonKey);
-    setCloudStatus("Connected", true);
-    return true;
-  } catch (error) {
-    console.error(error);
-    setCloudStatus("Connection invalid", false, true);
-    return false;
-  }
+  setCloudStatus("Connected", true);
+  return true;
 }
 
 function normalizeCloudUrl(value) {
@@ -906,7 +894,7 @@ function renderCloudStatus() {
 }
 
 function queueCloudSave() {
-  if (!supabaseClient || !hasScorecardData()) return;
+  if (!state.cloud.connected || !hasScorecardData()) return;
   clearTimeout(cloudSaveTimer);
   cloudSaveTimer = setTimeout(() => {
     saveCloudState({ manual: false });
@@ -914,7 +902,7 @@ function queueCloudSave() {
 }
 
 async function saveCloudState({ manual }) {
-  if (!supabaseClient && !initCloudClient()) {
+  if (!state.cloud.connected && !initCloudClient()) {
     if (manual) logActivity("Connect Supabase before saving to cloud.");
     return;
   }
@@ -924,13 +912,17 @@ async function saveCloudState({ manual }) {
   }
   setCloudStatus("Saving...", true);
   const payload = getPersistedPayload();
-  const { error } = await supabaseClient
-    .from("scorecard_states")
-    .upsert({
+  const { error } = await supabaseRequest("scorecard_states", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify({
       id: state.cloud.workspaceId || "vtc-main",
       payload,
       updated_at: new Date().toISOString()
-    }, { onConflict: "id" });
+    })
+  });
 
   if (error) {
     console.error(error);
@@ -943,16 +935,13 @@ async function saveCloudState({ manual }) {
 }
 
 async function loadCloudState({ silent }) {
-  if (!supabaseClient && !initCloudClient()) {
+  if (!state.cloud.connected && !initCloudClient()) {
     if (!silent) logActivity("Connect Supabase before loading cloud data.");
     return;
   }
   setCloudStatus("Loading...", true);
-  const { data, error } = await supabaseClient
-    .from("scorecard_states")
-    .select("payload, updated_at")
-    .eq("id", state.cloud.workspaceId || "vtc-main")
-    .maybeSingle();
+  const id = encodeURIComponent(state.cloud.workspaceId || "vtc-main");
+  const { data, error } = await supabaseRequest(`scorecard_states?select=payload,updated_at&id=eq.${id}&limit=1`);
 
   if (error) {
     console.error(error);
@@ -960,24 +949,48 @@ async function loadCloudState({ silent }) {
     logActivity(`Supabase load failed: ${error.message}`);
     return;
   }
-  if (!data?.payload) {
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row?.payload) {
     setCloudStatus("No cloud data", true);
     if (!silent) logActivity("No Supabase scorecard data exists for this workspace yet.");
     return;
   }
 
   const localSaved = state.lastSaved ? new Date(state.lastSaved).getTime() : 0;
-  const cloudSaved = data.payload.lastSaved ? new Date(data.payload.lastSaved).getTime() : new Date(data.updated_at).getTime();
+  const cloudSaved = row.payload.lastSaved ? new Date(row.payload.lastSaved).getTime() : new Date(row.updated_at).getTime();
   if (silent && localSaved > cloudSaved) {
     setCloudStatus("Local newer", true);
     return;
   }
 
-  applyPersistedPayload(data.payload);
+  applyPersistedPayload(row.payload);
   saveState({ syncCloud: false });
   setCloudStatus("Loaded", true);
   logActivity("Loaded scorecard data from Supabase.");
   render();
+}
+
+async function supabaseRequest(path, options = {}) {
+  try {
+    const response = await fetch(`${state.cloud.url}/rest/v1/${path}`, {
+      method: options.method || "GET",
+      headers: {
+        apikey: state.cloud.anonKey,
+        Authorization: `Bearer ${state.cloud.anonKey}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      },
+      body: options.body
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!response.ok) {
+      return { data: null, error: data || { message: response.statusText } };
+    }
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 function wireDropZone(target) {

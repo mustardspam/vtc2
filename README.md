@@ -29,7 +29,7 @@ For team-wide shared data, connect the app to Supabase using the Cloud Data pane
 2. Go to SQL Editor.
 3. Paste and run `supabase-schema.sql`.
 4. Go to Project Settings > API.
-5. Copy your Project URL and anon/public key.
+5. Copy your Project URL and anon/public or publishable key.
 6. Open the scorecard app and enter those values in Cloud Data.
 7. Keep Workspace ID as `vtc-main` unless you also change the SQL policies.
 8. Click Connect, then Save.
