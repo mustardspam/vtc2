@@ -27,7 +27,7 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-06.5";
+const APP_VERSION = "REST sync build 2026-05-06.6";
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -423,11 +423,11 @@ async function readWorkbook(file) {
   return XLSX.read(buffer, { type: "array", cellDates: true });
 }
 
-function parseFeedback(text) {
+function parseFeedback(text, meta = {}) {
   const cleaned = cleanText(text);
   if (!cleaned) return;
   const vendor = bestVendorMatch(cleaned);
-  const submitted = matchValue(text, /(from|submitted by|builder)[:\s]+([^\n<]+)/i);
+  const submitted = meta.from || matchValue(text, /(from|submitted by|builder)[:\s]+([^\n<]+)/i);
   const community = matchValue(text, /(community|neighborhood|subdivision)[:\s]+([^\n]+)/i);
   const severity = /critical|urgent|unsafe|failed|no show/i.test(text)
     ? "Critical"
@@ -462,9 +462,130 @@ function matchValue(text, regex) {
 
 async function readFeedbackFiles(files) {
   const chunks = [];
-  for (const file of files) chunks.push(await file.text());
+  let lastMeta = {};
+  for (const file of files) {
+    const raw = await file.text();
+    const parsed = /\.eml$/i.test(file.name) ? parseEml(raw) : { body: raw, from: "" };
+    chunks.push(parsed.body);
+    lastMeta = parsed;
+  }
   els.feedbackText.value = [els.feedbackText.value, ...chunks].filter(Boolean).join("\n\n");
-  parseFeedback(els.feedbackText.value);
+  parseFeedback(els.feedbackText.value, lastMeta);
+}
+
+function parseEml(raw) {
+  const normalized = raw.replace(/\r\n/g, "\n");
+  const headerEnd = normalized.indexOf("\n\n");
+  const headerText = headerEnd >= 0 ? normalized.slice(0, headerEnd) : "";
+  const bodyText = headerEnd >= 0 ? normalized.slice(headerEnd + 2) : normalized;
+  const headers = parseEmailHeaders(headerText);
+  const contentType = headers["content-type"] || "";
+  const boundary = contentType.match(/boundary="?([^";\n]+)"?/i)?.[1];
+  const parts = boundary ? splitMimeParts(bodyText, boundary) : [{ headers, body: bodyText }];
+  const decodedParts = parts.map((part) => ({
+    ...part,
+    decodedBody: decodeMimeBody(part.body, part.headers["content-transfer-encoding"])
+  }));
+  const plain = decodedParts.find((part) => /text\/plain/i.test(part.headers["content-type"] || ""));
+  const html = decodedParts.find((part) => /text\/html/i.test(part.headers["content-type"] || ""));
+  const fallback = decodedParts.find((part) => cleanText(part.decodedBody));
+  const body = cleanEmailBody(plain?.decodedBody || htmlToText(html?.decodedBody || "") || fallback?.decodedBody || bodyText);
+  return {
+    body,
+    from: cleanEmailAddress(headers.from || ""),
+    subject: decodeMimeWords(headers.subject || "")
+  };
+}
+
+function parseEmailHeaders(headerText) {
+  const unfolded = headerText.replace(/\n[ \t]+/g, " ");
+  const headers = {};
+  unfolded.split("\n").forEach((line) => {
+    const separator = line.indexOf(":");
+    if (separator <= 0) return;
+    const key = line.slice(0, separator).trim().toLowerCase();
+    headers[key] = decodeMimeWords(line.slice(separator + 1).trim());
+  });
+  return headers;
+}
+
+function splitMimeParts(bodyText, boundary) {
+  return bodyText
+    .split(`--${boundary}`)
+    .filter((part) => part.trim() && !part.trim().startsWith("--"))
+    .map((part) => {
+      const cleanPart = part.replace(/^\n+|\n+$/g, "");
+      const headerEnd = cleanPart.indexOf("\n\n");
+      const headerText = headerEnd >= 0 ? cleanPart.slice(0, headerEnd) : "";
+      const body = headerEnd >= 0 ? cleanPart.slice(headerEnd + 2) : cleanPart;
+      return { headers: parseEmailHeaders(headerText), body };
+    });
+}
+
+function decodeMimeBody(body, encoding = "") {
+  const normalizedEncoding = cleanText(encoding).toLowerCase();
+  if (normalizedEncoding === "base64") {
+    return decodeBase64Text(body);
+  }
+  if (normalizedEncoding === "quoted-printable") {
+    return decodeQuotedPrintable(body);
+  }
+  return body;
+}
+
+function decodeBase64Text(value) {
+  try {
+    const binary = atob(value.replace(/\s/g, ""));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
+  } catch {
+    return value;
+  }
+}
+
+function decodeQuotedPrintable(value) {
+  const withoutSoftBreaks = value.replace(/=\n/g, "");
+  const bytes = [];
+  for (let index = 0; index < withoutSoftBreaks.length; index += 1) {
+    if (withoutSoftBreaks[index] === "=" && /^[0-9A-F]{2}$/i.test(withoutSoftBreaks.slice(index + 1, index + 3))) {
+      bytes.push(parseInt(withoutSoftBreaks.slice(index + 1, index + 3), 16));
+      index += 2;
+    } else {
+      bytes.push(withoutSoftBreaks.charCodeAt(index));
+    }
+  }
+  try {
+    return new TextDecoder("utf-8").decode(new Uint8Array(bytes));
+  } catch {
+    return withoutSoftBreaks;
+  }
+}
+
+function decodeMimeWords(value) {
+  return String(value || "").replace(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/gi, (_, charset, encoding, text) => {
+    if (encoding.toUpperCase() === "B") return decodeBase64Text(text);
+    return decodeQuotedPrintable(text.replace(/_/g, " "));
+  });
+}
+
+function htmlToText(html) {
+  if (!html) return "";
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return doc.body?.innerText || "";
+}
+
+function cleanEmailBody(body) {
+  return cleanText(body
+    .replace(/\nOn .+ wrote:\n[\s\S]*$/i, "")
+    .replace(/\nFrom: .+\nSent: .+\nTo: .+[\s\S]*$/i, "")
+    .replace(/\n_{5,}[\s\S]*$/g, "")
+    .replace(/\n-{5,}[\s\S]*$/g, ""));
+}
+
+function cleanEmailAddress(value) {
+  const decoded = decodeMimeWords(value);
+  const match = decoded.match(/^"?([^"<]+)"?\s*</) || decoded.match(/([^<>\s]+@[^<>\s]+)/);
+  return cleanText(match ? match[1] : decoded);
 }
 
 function addFeedbackToLog(event) {
