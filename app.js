@@ -25,7 +25,43 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-06.9";
+const APP_VERSION = "REST sync build 2026-05-11.11";
+
+const SCHEDULE_COLUMN_ALIASES = {
+  month: "Month",
+  period: "Month",
+  score_month: "Month",
+  schedule_month: "Month",
+  date: "Month",
+  vendor_adj: "Vendor_Adj",
+  vendor: "Vendor_Name",
+  vendor_name: "Vendor_Name",
+  vendorname: "Vendor_Name",
+  trade_partner: "Vendor_Name",
+  supplier: "Vendor_Name",
+  vendor_id: "Vendor_ID",
+  vendorid: "Vendor_ID",
+  vendor_number: "Vendor_ID",
+  vendor_no: "Vendor_ID",
+  monthly_tasks: "Monthly_Tasks",
+  monthly_task_count: "Monthly_Tasks",
+  task_count: "Monthly_Tasks",
+  tasks: "Monthly_Tasks",
+  jobs: "Monthly_Tasks",
+  job_count: "Monthly_Tasks",
+  starts: "Monthly_Tasks",
+  workload: "Monthly_Tasks",
+  no_show_count: "No_Show_Count",
+  no_shows: "No_Show_Count",
+  noshows: "No_Show_Count",
+  no_show: "No_Show_Count",
+  noshow: "No_Show_Count",
+  missed_appointments: "No_Show_Count",
+  missed_jobs: "No_Show_Count",
+  adherence_pct: "Adherence_Pct",
+  adherence_percent: "Adherence_Pct",
+  adherence: "Adherence_Pct"
+};
 
 const LOG_POINTS = {
   "Kudos|-": 100,
@@ -193,13 +229,93 @@ function workbookToTables(wb) {
   const tables = emptyTables();
   for (const sheetName of wb.SheetNames) {
     const normalized = normalizeSheetName(sheetName);
-    if (!normalized) continue;
     const sheet = wb.Sheets[sheetName];
-    tables[normalized] = normalized === "Config"
+    const rows = normalized === "Config"
       ? readConfigSheet(sheet)
       : XLSX.utils.sheet_to_json(sheet, { defval: "" }).map(cleanRow);
+    const detected = normalized || detectSheetType(rows);
+    if (!detected) continue;
+    const normalizedRows = detected === "Schedule_Adherence_Raw" ? normalizeScheduleRows(rows) : rows;
+    tables[detected] = mergeRows(tables[detected], normalizedRows);
   }
   return tables;
+}
+
+function detectSheetType(rows) {
+  if (!rows.length) return null;
+  const canonicalHeaders = new Set();
+  rows.slice(0, 10).forEach((row) => {
+    Object.keys(row).forEach((key) => {
+      const canonical = canonicalScheduleKey(key);
+      if (canonical) canonicalHeaders.add(canonical);
+    });
+  });
+
+  const hasVendor = canonicalHeaders.has("Vendor_ID") || canonicalHeaders.has("Vendor_Name");
+  const hasScheduleMeasure = canonicalHeaders.has("Monthly_Tasks")
+    || canonicalHeaders.has("No_Show_Count")
+    || canonicalHeaders.has("Adherence_Pct");
+  return hasVendor && hasScheduleMeasure ? "Schedule_Adherence_Raw" : null;
+}
+
+function normalizeScheduleRows(rows) {
+  return rows
+    .map((row) => {
+      const normalized = {
+        Month: "",
+        Vendor_Adj: "",
+        Vendor_ID: "",
+        Vendor_Name: "",
+        Monthly_Tasks: 0,
+        No_Show_Count: 0,
+        Adherence_Pct: ""
+      };
+
+      Object.entries(row).forEach(([key, value]) => {
+        const canonical = canonicalScheduleKey(key);
+        if (!canonical) return;
+        if (canonical === "Monthly_Tasks" || canonical === "No_Show_Count") {
+          normalized[canonical] = toNumber(value);
+        } else if (canonical === "Adherence_Pct") {
+          normalized[canonical] = toNumber(value);
+        } else {
+          normalized[canonical] = cleanText(value);
+        }
+      });
+
+      if (!normalized.Vendor_Adj) normalized.Vendor_Adj = normalized.Vendor_Name;
+      if (!normalized.Vendor_Name) normalized.Vendor_Name = normalized.Vendor_Adj;
+      if (!hasExplicitScheduleCount(row, "No_Show_Count") && looksLikeNoShowRow(row)) {
+        normalized.No_Show_Count = 1;
+      }
+
+      return normalized;
+    })
+    .filter((row) => row.Vendor_ID || row.Vendor_Name || row.Vendor_Adj);
+}
+
+function canonicalScheduleKey(key) {
+  const compact = normalizeHeaderKey(key);
+  return SCHEDULE_COLUMN_ALIASES[compact] || null;
+}
+
+function normalizeHeaderKey(key) {
+  return cleanText(key)
+    .toLowerCase()
+    .replace(/[%#]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function hasExplicitScheduleCount(row, canonicalName) {
+  return Object.keys(row).some((key) => canonicalScheduleKey(key) === canonicalName && cleanText(row[key]) !== "");
+}
+
+function looksLikeNoShowRow(row) {
+  return Object.entries(row).some(([key, value]) => {
+    const text = `${key} ${value}`.toLowerCase();
+    return /\bno\s*-?\s*show\b|\bnoshow\b/.test(text) && !/^\s*(0|false|no)?\s*$/.test(cleanText(value).toLowerCase());
+  });
 }
 
 function readConfigSheet(sheet) {
@@ -307,6 +423,14 @@ function rowKey(row) {
   return JSON.stringify(Object.keys(row).sort().map((key) => [key, row[key]]));
 }
 
+function toNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const cleaned = cleanText(value).replace(/[$,%(),]/g, "");
+  if (!cleaned) return 0;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function calculateScores() {
   const byVendorName = new Map(state.vendors.map((vendor) => [cleanText(vendor.name).toLowerCase(), vendor]));
   const scheduleById = groupBy(state.tables.Schedule_Adherence_Raw, (row) => cleanText(row.Vendor_ID));
@@ -325,8 +449,10 @@ function calculateScores() {
     const safety = safetyRows.length
       ? Math.max(0, 100 - sum(safetyRows, (row) => Number(row.Severity_Score || 0)) * 10)
       : 100;
-    const schedule = scheduleRows.length
-      ? average(scheduleRows, (row) => Number(row.Adherence_Pct || 0)) * 100
+    const scheduleTasks = sum(scheduleRows, (row) => Number(row.Monthly_Tasks || 0));
+    const noShows = sum(scheduleRows, (row) => Number(row.No_Show_Count || 0));
+    const schedule = scheduleRows.length && scheduleTasks > 0
+      ? Math.max(0, Math.min(100, ((scheduleTasks - noShows) / scheduleTasks) * 100))
       : 100;
     const rework = reworkRows.length
       ? Math.max(0, 100 - sum(reworkRows, (row) => Number(row.PenaltyPoints || 0)) * 5)
@@ -790,35 +916,31 @@ function renderScores() {
 }
 
 function renderTradeRankings() {
-  const trades = tradeRankings();
-  const best = trades.slice(0, 5);
-  const worst = [...trades].reverse().slice(0, 5);
-  els.topBestTrades.innerHTML = renderTradeList(best, "No trade scores loaded yet.");
-  els.topWorstTrades.innerHTML = renderTradeList(worst, "No trade scores loaded yet.");
+  const vendors = tradeRankings();
+  const best = vendors.slice(0, 5);
+  const worst = [...vendors].reverse().slice(0, 5);
+  els.topBestTrades.innerHTML = renderTradeList(best, "No vendor scores loaded yet.");
+  els.topWorstTrades.innerHTML = renderTradeList(worst, "No vendor scores loaded yet.");
 }
 
 function tradeRankings() {
-  const grouped = groupBy(
-    state.scores.filter((score) => score.category && Number.isFinite(score.overall)),
-    (score) => score.category
-  );
-  return [...grouped.entries()]
-    .map(([category, scores]) => ({
-      category,
-      count: scores.length,
-      score: average(scores, (item) => item.overall)
+  return state.scores
+    .filter((score) => score.name && Number.isFinite(score.overall))
+    .map((score) => ({
+      name: score.name,
+      category: score.category,
+      score: score.overall
     }))
-    .filter((trade) => Number.isFinite(trade.score))
-    .sort((a, b) => b.score - a.score || b.count - a.count || a.category.localeCompare(b.category));
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 }
 
 function renderTradeList(trades, emptyText) {
   if (!trades.length) return `<li class="empty-trade">${emptyText}</li>`;
   return trades.map((trade) => `
     <li>
-      <span>${escapeHtml(trade.category)}</span>
+      <span>${escapeHtml(trade.name)}</span>
       <strong>${formatScore(trade.score)}</strong>
-      <small>${trade.count} vendor${trade.count === 1 ? "" : "s"}</small>
+      <small>${escapeHtml(trade.category || "Uncategorized")}</small>
     </li>
   `).join("");
 }
@@ -1206,7 +1328,8 @@ function wireDropZone(target) {
     const files = [...event.dataTransfer.files];
     const feedbackFiles = files.filter((file) => /\.(eml|txt)$/i.test(file.name));
     const workbookFiles = files.filter((file) => /\.(xlsx|xlsm|xlsb|xls|csv)$/i.test(file.name));
-    if (!state.workbook && workbookFiles.length) {
+    const droppedOnSourceInput = event.target.closest?.(".dropzone")?.querySelector?.("#sourceInput");
+    if (!state.workbook && workbookFiles.length && !droppedOnSourceInput) {
       loadMaster(workbookFiles.shift());
     }
     if (workbookFiles.length) ingestFiles(workbookFiles);

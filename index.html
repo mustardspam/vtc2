@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./styles.css" />
     <script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-    <script defer src="./app.js?v=20260506-rest-sync-9"></script>
+    <script defer src="./app.js?v=20260511-schedule-drop-1"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -61,7 +61,7 @@
             <input id="sourceInput" type="file" multiple accept=".xlsx,.xlsm,.xlsb,.xls,.csv" />
             <i data-lucide="folder-input"></i>
             <span>Drop update files</span>
-            <small>Safety, schedule, rework, or field log files.</small>
+            <small>Safety, rework, field log, or multiple schedule workbooks at once.</small>
           </label>
 
           <div class="weights" id="weightsPanel"></div>
@@ -116,14 +116,14 @@
             <div class="trade-rank-grid">
               <section class="trade-card">
                 <div class="trade-card-head">
-                  <h2>Best Performing Trades</h2>
+                  <h2>Best Performing Vendors</h2>
                   <i data-lucide="trending-up"></i>
                 </div>
                 <ol id="topBestTrades" class="trade-list"></ol>
               </section>
               <section class="trade-card">
                 <div class="trade-card-head">
-                  <h2>Worst Performing Trades</h2>
+                  <h2>Worst Performing Vendors</h2>
                   <i data-lucide="trending-down"></i>
                 </div>
                 <ol id="topWorstTrades" class="trade-list"></ol>

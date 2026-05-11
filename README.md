@@ -11,6 +11,7 @@ This is a local-first starter app for updating the Vendor & Trade Council scorec
    - `Schedule_Adherence_Raw`
    - `Rework`
    - `Log`
+   Schedule updates can be dropped as two separate workbooks at the same time. The app recognizes schedule files by headers such as `Vendor_ID`, `Vendor_Name`, `Monthly_Tasks`, and `No_Show_Count`, even if the worksheet tab names differ.
 4. Review the recalculated scores.
 5. Paste forwarded builder feedback into the Field feedback tab, review the parsed entry, and add it to the Log.
 6. Export the updated workbook.
@@ -39,6 +40,12 @@ The anon key is safe to use in a browser only when Row Level Security is enabled
 
 Team members should use the Share link from the Cloud Data panel, not just the plain site URL. The plain URL opens the app, but the Share link tells the app which Supabase project/workspace to load.
 
+## Builder Feedback Access
+
+Builders should not need a login. The Supabase schema allows anonymous users to read active vendor, trade, category, and community dropdown data and insert widget feedback only as `needs_review`. Anonymous feedback does not affect scorecard results until a manager or admin reviews and approves it.
+
+Because the builder widget is public, add spam protection before sharing the link broadly. Good low-cost options are a hidden honeypot field, basic rate limiting through a Supabase Edge Function, or Turnstile/reCAPTCHA if needed.
+
 ## Scoring Rules Captured
 
 The app mirrors the current scorecard weights from the workbook:
@@ -51,7 +58,7 @@ The app mirrors the current scorecard weights from the workbook:
 The scoring logic follows the formulas in the current workbook:
 
 - Safety starts at 100 and subtracts `Severity_Score * 10`.
-- Schedule averages `Adherence_Pct` and converts it to a 0-100 score.
+- Schedule uses no-shows as the only penalty: `(Monthly_Tasks - No_Show_Count) / Monthly_Tasks * 100`.
 - Rework starts at 100 and subtracts `PenaltyPoints * 5`.
 - Field Log averages the `Points` column.
 - Overall score is the weighted average of available weighted metrics.
