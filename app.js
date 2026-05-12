@@ -25,7 +25,7 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-11.11";
+const APP_VERSION = "REST sync build 2026-05-11.12";
 
 const SCHEDULE_COLUMN_ALIASES = {
   month: "Month",
@@ -127,6 +127,9 @@ window.addEventListener("DOMContentLoaded", () => {
     "fbSeverity",
     "fbCommunity",
     "fbNotes",
+    "feedbackLogStart",
+    "feedbackLogEnd",
+    "feedbackLogRows",
     "vendorList"
   ].forEach((id) => (els[id] = document.getElementById(id)));
 
@@ -137,12 +140,14 @@ window.addEventListener("DOMContentLoaded", () => {
   els.masterInput.addEventListener("change", (event) => loadMaster(event.target.files[0]));
   els.sourceInput.addEventListener("change", (event) => ingestFiles([...event.target.files]));
   els.feedbackFileInput.addEventListener("change", (event) => readFeedbackFiles([...event.target.files]));
-  els.exportBtn.addEventListener("click", exportWorkbook);
+  els.exportBtn.addEventListener("click", exportScorecardReport);
   els.resetBtn.addEventListener("click", resetSession);
   els.vendorSearch.addEventListener("input", renderScores);
   els.categoryFilter.addEventListener("change", renderScores);
   els.parseFeedbackBtn.addEventListener("click", () => parseFeedback(els.feedbackText.value));
   els.feedbackForm.addEventListener("submit", addFeedbackToLog);
+  els.feedbackLogStart.addEventListener("change", renderFeedbackLog);
+  els.feedbackLogEnd.addEventListener("change", renderFeedbackLog);
   els.cloudSaveConfigBtn.addEventListener("click", connectCloudFromForm);
   els.cloudLoadBtn.addEventListener("click", () => loadCloudState({ silent: false }));
   els.cloudSaveBtn.addEventListener("click", () => saveCloudState({ manual: true }));
@@ -377,15 +382,50 @@ function cleanText(value) {
   return String(value).replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function canonicalVendorName(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/\bd\/?b\/?a\b/g, " ")
+    .replace(/\b(incorporated|inc|llc|ltd|co|company|corporation|corp)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function vendorTradeKey(name, category) {
+  return `${canonicalVendorName(name)}|${cleanText(category).toLowerCase()}`;
+}
+
+function ensureVendorIds(vendor) {
+  const ids = Array.isArray(vendor.ids) ? [...vendor.ids] : [];
+  if (vendor.id && !ids.includes(vendor.id)) ids.unshift(vendor.id);
+  return { ...vendor, ids };
+}
+
 function readVendors(configRows) {
-  return configRows
+  const byVendorTrade = new Map();
+  configRows
     .filter((row) => row.Vendor_ID && row.Vendor_Name)
-    .map((row) => ({
-      id: cleanText(row.Vendor_ID),
-      name: cleanText(row.Vendor_Name),
-      category: cleanText(row.Category || "")
-    }))
-    .filter((vendor) => vendor.name);
+    .forEach((row) => {
+      const id = cleanText(row.Vendor_ID);
+      const name = cleanText(row.Vendor_Name);
+      const category = cleanText(row.Category || "");
+      if (!name) return;
+      const key = vendorTradeKey(name, category);
+      const existing = byVendorTrade.get(key);
+      if (existing) {
+        if (id && !existing.ids.includes(id)) existing.ids.push(id);
+        return;
+      }
+      byVendorTrade.set(key, {
+        id,
+        ids: id ? [id] : [],
+        name,
+        category
+      });
+    });
+
+  return [...byVendorTrade.values()].sort((a, b) => a.name.localeCompare(b.name) || a.category.localeCompare(b.category));
 }
 
 function readWeights(configRows) {
@@ -400,9 +440,19 @@ function readWeights(configRows) {
 
 function mergeConfig(rows) {
   const incomingVendors = readVendors(rows);
-  const byId = new Map(state.vendors.map((vendor) => [vendor.id, vendor]));
-  incomingVendors.forEach((vendor) => byId.set(vendor.id, vendor));
-  state.vendors = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const byVendorTrade = new Map(state.vendors.map((vendor) => [vendorTradeKey(vendor.name, vendor.category), ensureVendorIds(vendor)]));
+  incomingVendors.forEach((vendor) => {
+    const key = vendorTradeKey(vendor.name, vendor.category);
+    const existing = byVendorTrade.get(key);
+    if (!existing) {
+      byVendorTrade.set(key, ensureVendorIds(vendor));
+      return;
+    }
+    ensureVendorIds(vendor).ids.forEach((id) => {
+      if (id && !existing.ids.includes(id)) existing.ids.push(id);
+    });
+  });
+  state.vendors = [...byVendorTrade.values()].sort((a, b) => a.name.localeCompare(b.name) || a.category.localeCompare(b.category));
   state.tables.Config = vendorsToConfigRows(state.vendors, state.weights);
 }
 
@@ -432,17 +482,19 @@ function toNumber(value) {
 }
 
 function calculateScores() {
-  const byVendorName = new Map(state.vendors.map((vendor) => [cleanText(vendor.name).toLowerCase(), vendor]));
+  state.vendors = readVendors(vendorsToConfigRows(state.vendors, state.weights));
+  const byVendorName = new Map(state.vendors.map((vendor) => [canonicalVendorName(vendor.name), vendor]));
   const scheduleById = groupBy(state.tables.Schedule_Adherence_Raw, (row) => cleanText(row.Vendor_ID));
-  const safetyByVendor = groupBy(state.tables.Safety, (row) => cleanText(row.Vendor_Name).toLowerCase());
-  const reworkByVendor = groupBy(state.tables.Rework, (row) => cleanText(row.Vendor_Name).toLowerCase());
-  const logByVendor = groupBy(state.tables.Log, (row) => cleanText(row["Vendor Name Clean"] || row["Vendor Name"]).toLowerCase());
+  const safetyByVendor = groupBy(state.tables.Safety, (row) => canonicalVendorName(row.Vendor_Name));
+  const reworkByVendor = groupBy(state.tables.Rework, (row) => canonicalVendorName(row.Vendor_Name));
+  const logByVendor = groupBy(state.tables.Log, (row) => canonicalVendorName(row["Vendor Name Clean"] || row["Vendor Name"]));
   const workload = readWorkload();
 
   return state.vendors.map((vendor) => {
-    const key = cleanText(vendor.name).toLowerCase();
+    const key = canonicalVendorName(vendor.name);
+    const vendorIds = ensureVendorIds(vendor).ids;
     const safetyRows = safetyByVendor.get(key) || [];
-    const scheduleRows = scheduleById.get(cleanText(vendor.id)) || [];
+    const scheduleRows = vendorIds.flatMap((id) => scheduleById.get(cleanText(id)) || []);
     const reworkRows = reworkByVendor.get(key) || [];
     const logRows = logByVendor.get(key) || [];
 
@@ -473,7 +525,7 @@ function calculateScores() {
       rework,
       log,
       overall,
-      workload: workload.get(key) ?? null,
+      workload: workload.get(workloadKey(vendor.name, vendor.category)) ?? null,
       known: byVendorName.has(key)
     };
   }).sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1));
@@ -493,19 +545,45 @@ function weightedScore(components) {
 }
 
 function readWorkload() {
-  const map = new Map();
+  const vendorCategories = new Map();
+  state.vendors.forEach((vendor) => {
+    const vendorKey = canonicalVendorName(vendor.name);
+    const categoryKey = cleanText(vendor.category).toLowerCase();
+    if (!vendorKey || !categoryKey) return;
+    if (!vendorCategories.has(vendorKey)) vendorCategories.set(vendorKey, new Set());
+    vendorCategories.get(vendorKey).add(categoryKey);
+  });
+
+  const vendorCategoryCounts = new Map();
+  const categoryTotals = new Map();
   for (const sheetName of ["WorkloadSL", "WorkloadAW"]) {
     for (const row of state.tables[sheetName]) {
       for (const [key, value] of Object.entries(row)) {
         if (key === "Cost Code" || !value) continue;
-        const vendor = cleanText(value).toLowerCase();
-        map.set(vendor, (map.get(vendor) || 0) + 1);
+        const vendor = canonicalVendorName(value);
+        const categories = vendorCategories.get(vendor);
+        if (!categories || categories.size !== 1) continue;
+        const category = [...categories][0];
+        const mapKey = workloadKey(vendor, category);
+        vendorCategoryCounts.set(mapKey, (vendorCategoryCounts.get(mapKey) || 0) + 1);
+        categoryTotals.set(category, (categoryTotals.get(category) || 0) + 1);
       }
     }
   }
-  const max = Math.max(1, ...map.values());
-  for (const [key, value] of map.entries()) map.set(key, value / max);
-  return map;
+
+  const workload = new Map();
+  state.vendors.forEach((vendor) => {
+    const category = cleanText(vendor.category).toLowerCase();
+    const totalPossible = categoryTotals.get(category) || 0;
+    if (!totalPossible) return;
+    const mapKey = workloadKey(vendor.name, vendor.category);
+    workload.set(mapKey, (vendorCategoryCounts.get(mapKey) || 0) / totalPossible);
+  });
+  return workload;
+}
+
+function workloadKey(vendorName, category) {
+  return `${cleanText(vendorName).toLowerCase()}|${cleanText(category).toLowerCase()}`;
 }
 
 function groupBy(rows, getKey) {
@@ -728,26 +806,26 @@ function addFeedbackToLog(event) {
   render();
 }
 
-function exportWorkbook() {
+function exportScorecardReport() {
   if (!hasScorecardData()) return;
-  const wb = XLSX.utils.book_new();
-  const tables = {
-    ...state.tables,
-    Scores: scoresToRows()
-  };
-  for (const [sheetName, rows] of Object.entries(tables)) {
-    const sheet = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, sheet, sheetName.slice(0, 31));
-  }
   const stamp = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `VTC Scorecard Updated ${stamp}.xlsx`);
-  logActivity("Exported updated scorecard workbook.");
+  const report = window.open("", "_blank");
+  if (!report) {
+    logActivity("Allow pop-ups to export the scorecard report.");
+    return;
+  }
+
+  report.document.write(scorecardReportHtml(stamp, filteredFeedbackRows()));
+  report.document.close();
+  report.focus();
+  report.print();
+  logActivity("Opened printable scorecard report. Use Save as PDF in the print dialog.");
 }
 
 function scoresToRows() {
   return state.scores.map((score, index, all) => ({
     Vendor_Name: score.name,
-    Vendor_ID: score.id,
+    Vendor_ID: ensureVendorIds(score).ids.join(", "),
     Category: score.category,
     Safety_Score: round(score.safety),
     Schedule_Score: round(score.schedule),
@@ -760,12 +838,138 @@ function scoresToRows() {
   }));
 }
 
+function filteredFeedbackRows() {
+  const start = els.feedbackLogStart?.value ? new Date(`${els.feedbackLogStart.value}T00:00:00`) : null;
+  const end = els.feedbackLogEnd?.value ? new Date(`${els.feedbackLogEnd.value}T23:59:59`) : null;
+  return state.tables.Log
+    .map((row) => ({ ...row, _date: parseLogDate(row.Date) }))
+    .filter((row) => !start || (row._date && row._date >= start))
+    .filter((row) => !end || (row._date && row._date <= end))
+    .sort((a, b) => (b._date?.getTime() || 0) - (a._date?.getTime() || 0));
+}
+
+function parseLogDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(Date.UTC(1899, 11, 30) + value * 86400000);
+  }
+  const text = cleanText(value);
+  if (!text) return null;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatLogDate(value) {
+  const date = value instanceof Date ? value : parseLogDate(value);
+  return date ? date.toLocaleDateString() : cleanText(value);
+}
+
+function scorecardReportHtml(stamp, feedbackRows) {
+  const best = tradeRankings().slice(0, 5);
+  const worst = [...tradeRankings()].reverse().slice(0, 5);
+  const averageScore = average(state.scores, (score) => score.overall);
+  const dateRange = [
+    els.feedbackLogStart?.value ? `from ${els.feedbackLogStart.value}` : "",
+    els.feedbackLogEnd?.value ? `through ${els.feedbackLogEnd.value}` : ""
+  ].filter(Boolean).join(" ");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>VTC Scorecard Report ${escapeHtml(stamp)}</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; color: #17202a; margin: 28px; }
+    h1 { margin: 0 0 4px; font-size: 26px; }
+    h2 { margin: 26px 0 10px; font-size: 18px; }
+    .muted { color: #657083; }
+    .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
+    .card { border: 1px solid #d9e1ea; border-radius: 8px; padding: 12px; }
+    .card span { display: block; color: #657083; font-size: 12px; }
+    .card strong { display: block; margin-top: 5px; font-size: 22px; }
+    .rankings { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    ol { margin: 0; padding-left: 22px; }
+    li { margin: 5px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border-bottom: 1px solid #d9e1ea; padding: 7px 6px; text-align: left; vertical-align: top; }
+    th { background: #f5f7fa; }
+    .number { text-align: right; font-variant-numeric: tabular-nums; }
+    @media print { body { margin: 18px; } .page-break { break-before: page; } }
+  </style>
+</head>
+<body>
+  <h1>Vendor & Trade Council Scorecard</h1>
+  <div class="muted">Generated ${escapeHtml(new Date().toLocaleString())}${dateRange ? ` | Field feedback ${escapeHtml(dateRange)}` : ""}</div>
+  <section class="summary">
+    <div class="card"><span>Vendors</span><strong>${state.vendors.length}</strong></div>
+    <div class="card"><span>Average Score</span><strong>${formatScore(averageScore)}</strong></div>
+    <div class="card"><span>Field Feedback Entries</span><strong>${feedbackRows.length}</strong></div>
+    <div class="card"><span>Last Update</span><strong>${escapeHtml(state.lastSaved ? new Date(state.lastSaved).toLocaleDateString() : "None")}</strong></div>
+  </section>
+  <section class="rankings">
+    <div>
+      <h2>Best Performing Vendors</h2>
+      ${reportRankList(best)}
+    </div>
+    <div>
+      <h2>Worst Performing Vendors</h2>
+      ${reportRankList(worst)}
+    </div>
+  </section>
+  <h2>Score Detail</h2>
+  <table>
+    <thead><tr><th>Vendor</th><th>Trade</th><th class="number">Overall</th><th class="number">Safety</th><th class="number">Schedule</th><th class="number">Rework</th><th class="number">Field Log</th><th class="number">Workload</th></tr></thead>
+    <tbody>${state.scores.map((score) => `
+      <tr>
+        <td>${escapeHtml(score.name)}</td>
+        <td>${escapeHtml(score.category)}</td>
+        <td class="number">${formatScore(score.overall)}</td>
+        <td class="number">${formatScore(score.safety)}</td>
+        <td class="number">${formatScore(score.schedule)}</td>
+        <td class="number">${formatScore(score.rework)}</td>
+        <td class="number">${formatScore(score.log)}</td>
+        <td class="number">${score.workload === null ? "" : `${Math.round(score.workload * 100)}%`}</td>
+      </tr>`).join("")}</tbody>
+  </table>
+  <section class="page-break">
+    <h2>Field Feedback Log</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Vendor</th><th>Submitted</th><th>Category</th><th>Severity</th><th>Community</th><th class="number">Points</th><th>Notes</th></tr></thead>
+      <tbody>${feedbackRows.map(reportFeedbackRow).join("") || `<tr><td colspan="8">No field feedback in this date range.</td></tr>`}</tbody>
+    </table>
+  </section>
+</body>
+</html>`;
+}
+
+function reportRankList(rows) {
+  return rows.length
+    ? `<ol>${rows.map((row) => `<li><strong>${escapeHtml(row.name)}</strong> <span class="muted">${escapeHtml(row.category || "Uncategorized")}</span> - ${formatScore(row.score)}</li>`).join("")}</ol>`
+    : `<p class="muted">No vendor scores loaded.</p>`;
+}
+
+function reportFeedbackRow(row) {
+  return `<tr>
+    <td>${escapeHtml(formatLogDate(row._date || row.Date))}</td>
+    <td>${escapeHtml(row["Vendor Name Clean"] || row["Vendor Name"])}</td>
+    <td>${escapeHtml(row.Submitted)}</td>
+    <td>${escapeHtml(row.Category)}</td>
+    <td>${escapeHtml(row.Severity)}</td>
+    <td>${escapeHtml(row.Community)}</td>
+    <td class="number">${escapeHtml(row.Points)}</td>
+    <td>${escapeHtml(row.Notes)}</td>
+  </tr>`;
+}
+
 function vendorsToConfigRows(vendors, weights) {
-  const rows = vendors.map((vendor) => ({
-    Vendor_ID: vendor.id,
-    Vendor_Name: vendor.name,
-    Category: vendor.category
-  }));
+  const rows = vendors.flatMap((vendor) => {
+    const ids = ensureVendorIds(vendor).ids.length ? ensureVendorIds(vendor).ids : [vendor.id || ""];
+    return ids.map((id) => ({
+      Vendor_ID: id,
+      Vendor_Name: vendor.name,
+      Category: vendor.category
+    }));
+  });
   Object.entries(weights).forEach(([metric, weight]) => rows.push({ Metric: metric, Weight: weight }));
   return rows;
 }
@@ -790,6 +994,7 @@ function render() {
   renderCloudStatus();
   if (els.appVersion) els.appVersion.textContent = APP_VERSION;
   renderScores();
+  renderFeedbackLog();
   renderActivity();
   if (window.lucide) window.lucide.createIcons();
 }
@@ -913,6 +1118,23 @@ function renderScores() {
       <td class="number">${score.workload === null ? "" : `${Math.round(score.workload * 100)}%`}</td>
     </tr>
   `).join("") || `<tr><td colspan="8">Load the master scorecard to calculate vendor scores.</td></tr>`;
+}
+
+function renderFeedbackLog() {
+  if (!els.feedbackLogRows) return;
+  const rows = filteredFeedbackRows();
+  els.feedbackLogRows.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(formatLogDate(row._date || row.Date))}</td>
+      <td>${escapeHtml(row["Vendor Name Clean"] || row["Vendor Name"])}</td>
+      <td>${escapeHtml(row.Submitted)}</td>
+      <td>${escapeHtml(row.Category)}</td>
+      <td>${escapeHtml(row.Severity)}</td>
+      <td>${escapeHtml(row.Community)}</td>
+      <td class="number">${escapeHtml(row.Points)}</td>
+      <td>${escapeHtml(row.Notes)}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="8">No field feedback entries found.</td></tr>`;
 }
 
 function renderTradeRankings() {

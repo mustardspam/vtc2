@@ -14,7 +14,7 @@ This is a local-first starter app for updating the Vendor & Trade Council scorec
    Schedule updates can be dropped as two separate workbooks at the same time. The app recognizes schedule files by headers such as `Vendor_ID`, `Vendor_Name`, `Monthly_Tasks`, and `No_Show_Count`, even if the worksheet tab names differ.
 4. Review the recalculated scores.
 5. Paste forwarded builder feedback into the Field feedback tab, review the parsed entry, and add it to the Log.
-6. Export the updated workbook.
+6. Use Export scorecard to open a printable dashboard report. Choose Save as PDF in the browser print dialog.
 
 ## Saved Data
 
@@ -62,6 +62,8 @@ The scoring logic follows the formulas in the current workbook:
 - Rework starts at 100 and subtracts `PenaltyPoints * 5`.
 - Field Log averages the `Points` column.
 - Overall score is the weighted average of available weighted metrics.
+- Workload is the vendor/trade share of available work in that category: vendor jobs divided by all known vendor jobs in the same trade/category.
+- Vendors with the same normalized name and trade/category are merged for scoring even when the two brands use different vendor IDs.
 
 ## Hands-Off Email Path
 
