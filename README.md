@@ -64,6 +64,7 @@ The scoring logic follows the formulas in the current workbook:
 - Overall score is the weighted average of available weighted metrics.
 - Workload is the vendor/trade share of available work in that category: vendor jobs divided by all known vendor jobs in the same trade/category.
 - Vendors with the same normalized name and trade/category are merged for scoring even when the two brands use different vendor IDs.
+- Field feedback combines the Excel `Log` sheet with website-entered feedback. Website entries are stored separately so reloading the master workbook does not erase them.
 
 ## Hands-Off Email Path
 

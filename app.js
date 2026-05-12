@@ -25,7 +25,7 @@ const DEFAULT_WEIGHTS = {
 const WEIGHT_METRICS = Object.keys(DEFAULT_WEIGHTS);
 const STORAGE_KEY = "vtc-scorecard-state-v1";
 const CLOUD_CONFIG_KEY = "vtc-scorecard-cloud-config-v1";
-const APP_VERSION = "REST sync build 2026-05-11.12";
+const APP_VERSION = "REST sync build 2026-05-12.13";
 
 const SCHEDULE_COLUMN_ALIASES = {
   month: "Month",
@@ -74,6 +74,7 @@ const state = {
   workbook: null,
   fileName: "",
   tables: emptyTables(),
+  siteFeedback: [],
   vendors: [],
   weights: { ...DEFAULT_WEIGHTS },
   scores: [],
@@ -487,7 +488,7 @@ function calculateScores() {
   const scheduleById = groupBy(state.tables.Schedule_Adherence_Raw, (row) => cleanText(row.Vendor_ID));
   const safetyByVendor = groupBy(state.tables.Safety, (row) => canonicalVendorName(row.Vendor_Name));
   const reworkByVendor = groupBy(state.tables.Rework, (row) => canonicalVendorName(row.Vendor_Name));
-  const logByVendor = groupBy(state.tables.Log, (row) => canonicalVendorName(row["Vendor Name Clean"] || row["Vendor Name"]));
+  const logByVendor = groupBy(allFeedbackRows(), (row) => canonicalVendorName(row["Vendor Name Clean"] || row["Vendor Name"]));
   const workload = readWorkload();
 
   return state.vendors.map((vendor) => {
@@ -787,7 +788,9 @@ function addFeedbackToLog(event) {
   const category = els.fbCategory.value;
   const severity = els.fbSeverity.value;
   const points = LOG_POINTS[`${category}|${severity}`] ?? 70;
-  state.tables.Log.push({
+  const feedbackEntry = {
+    Source: "Website widget",
+    Feedback_ID: crypto.randomUUID?.() || `feedback-${Date.now()}`,
     Date: excelDate(new Date()),
     "Vendor Name": vendorName,
     Submitted: cleanText(els.fbSubmitted.value),
@@ -797,7 +800,8 @@ function addFeedbackToLog(event) {
     Notes: cleanText(els.fbNotes.value),
     Points: points,
     "Vendor Name Clean": vendor?.name || vendorName
-  });
+  };
+  state.siteFeedback.unshift(feedbackEntry);
   state.scores = calculateScores();
   els.feedbackForm.reset();
   els.pendingCount.textContent = "0";
@@ -838,10 +842,17 @@ function scoresToRows() {
   }));
 }
 
+function allFeedbackRows() {
+  return [
+    ...state.siteFeedback.map((row) => ({ Source: "Website widget", ...row })),
+    ...state.tables.Log.map((row) => ({ Source: row.Source || "Excel Log", ...row }))
+  ];
+}
+
 function filteredFeedbackRows() {
   const start = els.feedbackLogStart?.value ? new Date(`${els.feedbackLogStart.value}T00:00:00`) : null;
   const end = els.feedbackLogEnd?.value ? new Date(`${els.feedbackLogEnd.value}T23:59:59`) : null;
-  return state.tables.Log
+  return allFeedbackRows()
     .map((row) => ({ ...row, _date: parseLogDate(row.Date) }))
     .filter((row) => !start || (row._date && row._date >= start))
     .filter((row) => !end || (row._date && row._date <= end))
@@ -934,8 +945,8 @@ function scorecardReportHtml(stamp, feedbackRows) {
   <section class="page-break">
     <h2>Field Feedback Log</h2>
     <table>
-      <thead><tr><th>Date</th><th>Vendor</th><th>Submitted</th><th>Category</th><th>Severity</th><th>Community</th><th class="number">Points</th><th>Notes</th></tr></thead>
-      <tbody>${feedbackRows.map(reportFeedbackRow).join("") || `<tr><td colspan="8">No field feedback in this date range.</td></tr>`}</tbody>
+      <thead><tr><th>Date</th><th>Source</th><th>Vendor</th><th>Submitted</th><th>Category</th><th>Severity</th><th>Community</th><th class="number">Points</th><th>Notes</th></tr></thead>
+      <tbody>${feedbackRows.map(reportFeedbackRow).join("") || `<tr><td colspan="9">No field feedback in this date range.</td></tr>`}</tbody>
     </table>
   </section>
 </body>
@@ -951,6 +962,7 @@ function reportRankList(rows) {
 function reportFeedbackRow(row) {
   return `<tr>
     <td>${escapeHtml(formatLogDate(row._date || row.Date))}</td>
+    <td>${escapeHtml(row.Source || "Excel Log")}</td>
     <td>${escapeHtml(row["Vendor Name Clean"] || row["Vendor Name"])}</td>
     <td>${escapeHtml(row.Submitted)}</td>
     <td>${escapeHtml(row.Category)}</td>
@@ -1126,6 +1138,7 @@ function renderFeedbackLog() {
   els.feedbackLogRows.innerHTML = rows.map((row) => `
     <tr>
       <td>${escapeHtml(formatLogDate(row._date || row.Date))}</td>
+      <td>${escapeHtml(row.Source || "Excel Log")}</td>
       <td>${escapeHtml(row["Vendor Name Clean"] || row["Vendor Name"])}</td>
       <td>${escapeHtml(row.Submitted)}</td>
       <td>${escapeHtml(row.Category)}</td>
@@ -1134,7 +1147,7 @@ function renderFeedbackLog() {
       <td class="number">${escapeHtml(row.Points)}</td>
       <td>${escapeHtml(row.Notes)}</td>
     </tr>
-  `).join("") || `<tr><td colspan="8">No field feedback entries found.</td></tr>`;
+  `).join("") || `<tr><td colspan="9">No field feedback entries found.</td></tr>`;
 }
 
 function renderTradeRankings() {
@@ -1199,6 +1212,7 @@ function resetSession() {
   state.workbook = null;
   state.fileName = "";
   state.tables = emptyTables();
+  state.siteFeedback = [];
   state.vendors = [];
   state.weights = { ...DEFAULT_WEIGHTS };
   state.scores = [];
@@ -1219,6 +1233,7 @@ function saveState(options = { syncCloud: true }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       fileName: state.fileName,
       tables: state.tables,
+      siteFeedback: state.siteFeedback,
       vendors: state.vendors,
       weights: state.weights,
       activity: state.activity,
@@ -1238,6 +1253,7 @@ function restoreState() {
     const parsed = JSON.parse(saved);
     state.fileName = parsed.fileName || "";
     state.tables = { ...emptyTables(), ...(parsed.tables || {}) };
+    state.siteFeedback = Array.isArray(parsed.siteFeedback) ? parsed.siteFeedback : [];
     state.vendors = parsed.vendors?.length ? parsed.vendors : readVendors(state.tables.Config);
     state.weights = normalizeWeights({ ...DEFAULT_WEIGHTS, ...(parsed.weights || {}) });
     state.activity = Array.isArray(parsed.activity) ? parsed.activity.slice(0, 80) : [];
@@ -1255,6 +1271,7 @@ function getPersistedPayload() {
   return {
     fileName: state.fileName,
     tables: state.tables,
+    siteFeedback: state.siteFeedback,
     vendors: state.vendors,
     weights: state.weights,
     activity: state.activity,
@@ -1265,6 +1282,7 @@ function getPersistedPayload() {
 function applyPersistedPayload(payload) {
   state.fileName = payload.fileName || "";
   state.tables = { ...emptyTables(), ...(payload.tables || {}) };
+  state.siteFeedback = Array.isArray(payload.siteFeedback) ? payload.siteFeedback : [];
   state.vendors = payload.vendors?.length ? payload.vendors : readVendors(state.tables.Config);
   state.weights = normalizeWeights({ ...DEFAULT_WEIGHTS, ...(payload.weights || {}) });
   state.activity = Array.isArray(payload.activity) ? payload.activity.slice(0, 80) : [];
